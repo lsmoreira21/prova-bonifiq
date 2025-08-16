@@ -1,35 +1,67 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ProvaPub.Models;
+using ProvaPub.Payments;
 using ProvaPub.Repository;
 using ProvaPub.Services;
 
 namespace ProvaPub.Controllers
 {
-
-    /// <summary>
-    /// Esse teste simula um pagamento de uma compra.
-    /// O método PayOrder aceita diversas formas de pagamento. Dentro desse método é feita uma estrutura de diversos "if" para cada um deles.
-    /// Sabemos, no entanto, que esse formato não é adequado, em especial para futuras inclusões de formas de pagamento.
-    /// Como você reestruturaria o método PayOrder para que ele ficasse mais aderente com as boas práticas de arquitetura de sistemas?
-    /// 
-    /// Outra parte importante é em relação à data (OrderDate) do objeto Order. Ela deve ser salva no banco como UTC mas deve retornar para o cliente no fuso horário do Brasil. 
-    /// Demonstre como você faria isso.
-    /// </summary>
     [ApiController]
-	[Route("[controller]")]
-	public class Parte3Controller :  ControllerBase
-	{
-		[HttpGet("orders")]
-		public async Task<Order> PlaceOrder(string paymentMethod, decimal paymentValue, int customerId)
-		{
+    [Route("[controller]")]
+    public class Parte3Controller : ControllerBase
+    {
+        // Lista de métodos de pagamento válidos
+        private static readonly List<string> ValidPaymentMethods = new()
+        {
+            "Pix",
+            "CreditCard",
+            "Paypal"
+        };
+
+        [HttpGet("payment-methods")]
+        public IActionResult GetPaymentMethods()
+        {
+            return Ok(ValidPaymentMethods);
+        }
+
+        [HttpGet("orders")]
+        public async Task<IActionResult> PlaceOrder(string paymentMethod, decimal paymentValue, int customerId)
+        {
+            if (!ValidPaymentMethods.Contains(paymentMethod))
+                return BadRequest($"Método de pagamento inválido. Métodos válidos: {string.Join(", ", ValidPaymentMethods)}");
+
             var contextOptions = new DbContextOptionsBuilder<TestDbContext>()
-    .UseSqlServer(@"Server=(localdb)\mssqllocaldb;Database=Teste;Trusted_Connection=True;")
-    .Options;
+                .UseSqlServer(@"Server=(localdb)\mssqllocaldb;Database=Teste;Trusted_Connection=True;")
+                .Options;
 
             using var context = new TestDbContext(contextOptions);
 
-            return await new OrderService(context).PayOrder(paymentMethod, paymentValue, customerId);
-		}
-	}
+            var paymentStrategies = new List<IPaymentStrategy>
+            {
+                new PixPaymentStrategy(),
+                new CreditCardPaymentStrategy(),
+                new PaypalPaymentStrategy()
+            };
+
+            var orderService = new OrderService(context, paymentStrategies);
+
+            var order = new Order
+            {
+                CustomerId = customerId,
+                OrderDate = DateTime.UtcNow, // Salva como UTC
+                Value = paymentValue
+            };
+
+            await orderService.PayOrder(order, paymentValue, paymentMethod);
+
+
+            order = await orderService.InsertOrder(order); // Salva no banco
+
+            order.OrderDate = TimeZoneInfo.ConvertTimeFromUtc(order.OrderDate,
+                TimeZoneInfo.FindSystemTimeZoneById("E. South America Standard Time"));
+
+            return Ok(order);
+        }
+    }
 }
