@@ -7,15 +7,17 @@ namespace ProvaPub.Services
     public class CustomerService
     {
         TestDbContext _ctx;
+        PagedService _pagedService;
 
-        public CustomerService(TestDbContext ctx)
+        public CustomerService(TestDbContext ctx, PagedService pagedService)
         {
             _ctx = ctx;
+            _pagedService = pagedService;
         }
 
-        public CustomerList ListCustomers(int page)
+        public PagedList<Customer> ListCustomers(int page)
         {
-            return new CustomerList() { HasNext = false, TotalCount = 10, Customers = _ctx.Customers.ToList() };
+            return _pagedService.GetPagedList(_ctx.Customers, page);
         }
 
         public async Task<bool> CanPurchase(int customerId, decimal purchaseValue)
